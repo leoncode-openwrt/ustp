@@ -44,6 +44,8 @@
 
 static struct uloop_fd ufd;
 
+#define PACKET_SHUTDOWN_CHECK_INTERVAL 64
+
 #ifdef PACKET_DEBUG
 static void dump_packet(const unsigned char *buf, int cc)
 {
@@ -115,10 +117,12 @@ void packet_rcv(void)
 {
     unsigned char buf[2048];
     struct sockaddr_ll sl;
-    socklen_t salen = sizeof sl;
+    unsigned int processed = 0;
     int cc;
 
 	while (1) {
+		socklen_t salen = sizeof(sl);
+
 		cc = recvfrom(ufd.fd, &buf, sizeof(buf), 0, (struct sockaddr *) &sl, &salen);
 		if (cc < 0) {
 			switch (errno) {
@@ -147,6 +151,10 @@ void packet_rcv(void)
 #endif
 
 		bridge_bpdu_rcv(sl.sll_ifindex, buf, cc);
+		processed++;
+		if (!(processed % PACKET_SHUTDOWN_CHECK_INTERVAL) &&
+		    worker_shutdown_requested())
+			return;
 	}
 }
 
@@ -188,7 +196,21 @@ int packet_sock_init(void)
     };
     int s;
 
-    s = socket(PF_PACKET, SOCK_RAW, htons(ETH_P_802_2));
+    /*
+     * Register as an ETH_P_ALL packet tap and let the attached BPF retain
+     * only STP LLC frames.  On Linux bridges (notably DSA), protocol-specific
+     * packet handlers may run only after the receive device has already been
+     * changed from the physical bridge port to the bridge master.  USTP then
+     * receives the BPDU with the bridge ifindex and silently drops it because
+     * the bridge is not a port.
+     *
+     * ETH_P_ALL taps run on each receive round.  After DSA removes its switch
+     * tag, the tap therefore sees the untagged BPDU on the actual user port
+     * before the bridge handler changes skb->dev to the bridge master.  The
+     * later bridge-master copy is harmless because bridge_bpdu_rcv() already
+     * ignores ifindexes that are not managed ports.
+     */
+    s = socket(PF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
     if(s < 0)
     {
         ERROR("socket failed: %m");
@@ -198,6 +220,17 @@ int packet_sock_init(void)
     if (setsockopt(s, SOL_SOCKET, SO_ATTACH_FILTER, &prog, sizeof(prog)) < 0) {
         ERROR("setsockopt packet filter failed: %m");
 		goto out;
+    }
+
+    {
+        int ignore_outgoing = 1;
+
+        /* Never feed BPDUs sent by this daemon back into its receive path. */
+        if (setsockopt(s, SOL_PACKET, PACKET_IGNORE_OUTGOING,
+                       &ignore_outgoing, sizeof(ignore_outgoing)) < 0) {
+            ERROR("setsockopt ignore outgoing failed: %m");
+            goto out;
+        }
     }
 
 	if (fcntl(s, F_SETFL, O_NONBLOCK) < 0) {

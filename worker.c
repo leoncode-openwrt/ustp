@@ -117,6 +117,17 @@ void worker_cleanup(void)
 	pthread_join(w_thread, NULL);
 }
 
+bool worker_shutdown_requested(void)
+{
+	bool shutdown;
+
+	pthread_mutex_lock(&w_lock);
+	shutdown = w_shutdown;
+	pthread_mutex_unlock(&w_lock);
+
+	return shutdown;
+}
+
 bool worker_queue_event(const struct worker_event *ev)
 {
 	bool queued = false;

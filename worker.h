@@ -40,6 +40,7 @@ struct worker_event {
 
 int worker_init(void);
 void worker_cleanup(void);
+bool worker_shutdown_requested(void);
 bool worker_queue_event(const struct worker_event *ev);
 
 #endif

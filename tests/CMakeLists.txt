@@ -43,3 +43,9 @@ target_compile_options(test_worker_shutdown PRIVATE
 target_link_options(test_worker_shutdown PRIVATE -Wl,--gc-sections)
 target_link_libraries(test_worker_shutdown Threads::Threads)
 add_test(NAME worker_shutdown COMMAND test_worker_shutdown)
+
+add_executable(test_packet_socket test_packet_socket.c)
+target_compile_options(test_packet_socket PRIVATE
+    -Wall -Werror -ffunction-sections -fdata-sections)
+target_link_options(test_packet_socket PRIVATE -Wl,--gc-sections)
+add_test(NAME packet_socket COMMAND test_packet_socket)

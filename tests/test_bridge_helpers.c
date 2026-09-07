@@ -9,6 +9,9 @@
 #include <unistd.h>
 
 static bool fail_calloc;
+static unsigned int restored_ifindexes[4];
+static unsigned int restored_states[4];
+static unsigned int restored_count;
 
 static void *test_calloc(size_t count, size_t size)
 {
@@ -24,6 +27,17 @@ static void *test_calloc(size_t count, size_t size)
 
 int log_level;
 struct rtnl_handle rth_state;
+
+static int record_state(struct rtnl_handle *rth, unsigned int ifindex,
+                        __u8 state)
+{
+    (void)rth;
+    assert(restored_count < 4);
+    restored_ifindexes[restored_count] = ifindex;
+    restored_states[restored_count] = state;
+    restored_count++;
+    return 0;
+}
 
 void Dprintf(int level, const char *fmt, ...);
 void Dprintf(int level, const char *fmt, ...)
@@ -88,9 +102,34 @@ static void test_port_resolution_errors(void)
 	assert(ports == NULL);
 }
 
+static void test_shutdown_restores_forwarding(void)
+{
+    bridge_t bridge = {};
+    port_t first = {}, second = {};
+
+    INIT_LIST_HEAD(&bridge.ports);
+    INIT_LIST_HEAD(&first.br_list);
+    INIT_LIST_HEAD(&second.br_list);
+    first.bridge = &bridge;
+    second.bridge = &bridge;
+    first.sysdeps.if_index = 3;
+    second.sysdeps.if_index = 6;
+    list_add_tail(&first.br_list, &bridge.ports);
+    list_add_tail(&second.br_list, &bridge.ports);
+
+    restored_count = 0;
+    restore_forwarding(&bridge, record_state);
+    assert(restored_count == 2);
+    assert(restored_ifindexes[0] == 3);
+    assert(restored_ifindexes[1] == 6);
+    assert(restored_states[0] == BR_STATE_FORWARDING);
+    assert(restored_states[1] == BR_STATE_FORWARDING);
+}
+
 int main(void)
 {
-	test_port_scan();
-	test_port_resolution_errors();
-	return 0;
+    test_port_scan();
+    test_port_resolution_errors();
+    test_shutdown_restores_forwarding();
+    return 0;
 }

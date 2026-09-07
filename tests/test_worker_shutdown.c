@@ -69,9 +69,11 @@ int main(void)
 	struct worker_event event = { .type = WORKER_EV_ONE_SECOND };
 
 	assert(worker_init() == 0);
+	assert(!worker_shutdown_requested());
 	assert(worker_queue_event(&event));
 	assert(worker_queue_event(&event));
 	worker_cleanup();
+	assert(worker_shutdown_requested());
 	assert(!worker_queue_event(&event));
 	assert(atomic_load(&processed) <= 2);
 	test_parallel_ticks();

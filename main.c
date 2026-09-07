@@ -89,8 +89,9 @@ int main(int argc, char *argv[])
 	ustp_ubus_init();
 
 	uloop_run();
-	bridge_track_fini();
+	/* Stop the worker before walking and releasing its bridge objects. */
 	worker_cleanup();
+	bridge_track_fini();
 	ustp_ubus_exit();
 	uloop_done();
 

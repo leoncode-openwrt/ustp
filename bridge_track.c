@@ -50,6 +50,12 @@
 #endif
 
 static LIST_HEAD(bridges);
+static bridge_t *releasing_bridge;
+
+static int br_set_state(struct rtnl_handle *rth, unsigned ifindex,
+                        __u8 state);
+
+typedef int (*bridge_state_setter_t)(struct rtnl_handle *, unsigned, __u8);
 
 static bridge_t * create_br(int if_index)
 {
@@ -147,6 +153,36 @@ static inline bool delete_if_byindex(bridge_t * br, int if_index)
     return true;
 }
 
+static void restore_forwarding(bridge_t *br, bridge_state_setter_t set_state)
+{
+    port_t *prt;
+
+    list_for_each_entry(prt, &br->ports, br_list)
+        if (set_state(&rth_state, prt->sysdeps.if_index,
+                      BR_STATE_FORWARDING) < 0)
+            ERROR_PRTNAME(br, prt,
+                          "Couldn't restore kernel bridge forwarding state");
+}
+
+static void release_br(bridge_t *br)
+{
+    /*
+     * Userspace STP owns the kernel bridge-port states while the daemon is
+     * running.  Hand them back in fail-open mode before destroying the
+     * protocol state.  Otherwise MSTP_IN_delete_bridge() leaves the ports in
+     * BR_STATE_DISABLED and stopping ustpd can isolate the whole device.
+     *
+     * Deleting the internal objects runs the state machines once more.  Keep
+     * those teardown transitions from overwriting the forwarding state we
+     * have just restored.
+     */
+    restore_forwarding(br, br_set_state);
+
+    releasing_bridge = br;
+    MSTP_IN_delete_bridge(br);
+    releasing_bridge = NULL;
+}
+
 static bool delete_br_byindex(int if_index)
 {
     bridge_t *br;
@@ -156,7 +192,7 @@ static bool delete_br_byindex(int if_index)
     INFO("Delete bridge %s (%d)", br->sysdeps.name, if_index);
 
     list_del(&br->list);
-    MSTP_IN_delete_bridge(br);
+    release_br(br);
     free(br);
     return true;
 }
@@ -485,6 +521,9 @@ void MSTP_OUT_set_state(per_tree_port_t *ptp, int new_state)
         return;
     ptp->state = driver_set_new_state(ptp, new_state);
 
+    if(releasing_bridge == br)
+        return;
+
     switch(ptp->state)
     {
         case BR_STATE_LISTENING:
@@ -768,10 +807,10 @@ void bridge_delete(int index)
 int bridge_track_fini(void)
 {
     INFO("Stopping all bridges");
-    bridge_t *br;
-    list_for_each_entry(br, &bridges, list)
-    {
-        set_br_up(br, false);
-    }
+    bridge_t *br, *next;
+
+    list_for_each_entry_safe(br, next, &bridges, list)
+        delete_br_byindex(br->sysdeps.if_index);
+
     return 0;
 }
