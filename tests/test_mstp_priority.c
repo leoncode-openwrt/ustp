@@ -57,6 +57,16 @@ static void assert_priority(const bridge_identifier_t *id, unsigned int step)
 	assert(GET_PRIORITY_FROM_IDENTIFIER(*id) == step << 4);
 }
 
+static void test_assignment_evaluates_destination_once(void)
+{
+    unsigned int values[2];
+    unsigned int index = 0;
+
+    assign(values[index++], 42U);
+    assert(index == 1);
+    assert(values[0] == 42U);
+}
+
 int main(void)
 {
 	const __u8 mac[ETH_ALEN] = { 0x60, 0xbe, 0xb4, 0x15, 0x16, 0xc0 };
@@ -102,5 +112,6 @@ int main(void)
 	assert(!ptp->reselect);
 
 	MSTP_IN_delete_bridge(&br);
+    test_assignment_evaluates_destination_once();
 	return 0;
 }

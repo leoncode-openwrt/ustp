@@ -26,11 +26,11 @@
 /*
  * assign() and cmp() macros that also do strict type-checking. See the
  * "unnecessary" pointer comparison.
- * NOTE: potential double-evaluation of the first argument in assign macro!
- *       It is the price for type-safety ;)
+ * The assignment destination is used only for type checking and the final
+ * write; do not read its potentially uninitialized previous value.
  */
 #define assign(x, y) ({             \
-    typeof(x) _assign1 = (x);       \
+    typeof(x) _assign1;             \
     typeof(y) _assign2 = (y);       \
     (void)(&_assign1 == &_assign2); \
     (x) = _assign2; })
